@@ -1,76 +1,82 @@
-# IWRL6432 — mmWave 재실 감지 레이더
+# IWRL6432 — mmWave Presence Radar
 
-TI IWRL6432BOOST (60 GHz mmWave) 로 구역별 재실/움직임을 감지하는 작업.
-호스트 쪽 Python 툴 + nRF5340 호스트 앱 자리(Zephyr 스켈레톤).
+Per-zone presence and motion detection with a TI IWRL6432BOOST (60 GHz mmWave).
+Host-side Python tooling plus a placeholder Zephyr app for the nRF5340 host.
 
-## 데이터를 어떻게 받아오나
+## How the data is read
 
-**I2C가 아니라 UART다.** IWRL6432는 독립 SoC 라서 (Cortex-M4F + 하드웨어 가속기)
-레이더 신호 처리를 자기가 다 하고, **처리된 결과만** TLV 바이너리로 UART에 뱉는다.
-호스트는 원시 레이더 데이터를 만질 일이 없다.
+**This is UART, not I2C.** The IWRL6432 is a standalone SoC (Cortex-M4F plus
+hardware accelerator) — radar signal processing runs entirely on the device, and
+only the **processed results** go out over UART as binary TLVs. The host never
+touches raw radar data.
 
 ```
-[IWRL6432 SoC]  --UART-->  [호스트: PC 또는 nRF5340]
-   레이더 펌웨어가            매직워드 + 헤더 + TLV 블록 파싱
-   FFT/CFAR/presence 처리
+[IWRL6432 SoC]  --UART-->  [host: PC or nRF5340]
+   radar firmware runs        parse magic word + header + TLV blocks
+   FFT / CFAR / presence
 ```
 
-흐름은 두 방향이 같은 UART를 공유한다:
+Both directions share the same UART:
 
-1. **호스트 → 레이더**: ASCII CLI 명령. `.cfg` 파일을 한 줄씩 보내 프로파일을 설정하고
-   `sensorStart` 로 스트리밍 시작.
-2. **레이더 → 호스트**: 프레임마다 바이너리 TLV. 매직워드
-   `02 01 04 03 06 05 08 07` 로 시작하고, 헤더 뒤에 TLV 타입별 페이로드가 붙는다
-   (point cloud, presence, target list, stats).
+1. **host → radar**: ASCII CLI commands. A `.cfg` file is sent line by line to
+   configure the profile, then `sensorStart` begins streaming.
+2. **radar → host**: binary TLVs, one batch per frame. Each frame starts with the
+   magic word `02 01 04 03 06 05 08 07`, followed by a header and then
+   type-tagged payloads (point cloud, presence, target list, stats).
 
-현재 프로파일은 250 ms 주기 → 약 4 fps.
+The current profile runs a 250 ms period, so about 4 fps.
 
-**핵심 함정: CLI와 데이터가 같은 UART 하나를 쓴다.** IWR6843 계열처럼 "설정 포트 /
-데이터 포트 2개"가 아니다. 그래서 cfg 안의 `baudRate 1250000` 은 *지금 말하고 있는 그
-포트*의 속도를 바꿔버리고, 그 줄 이후는 새 속도로 보내야 한다.
+**The key trap: CLI and data share one single UART.** This is not the
+"config port + data port" arrangement familiar from the IWR6843 family. As a
+result, `baudRate 1250000` inside the cfg changes the speed of *the very port you
+are talking on*, and every line after it must be sent at the new speed.
 
-## 현재 상태
+## Current state
 
-- **1단계 (완료)** — EVM을 맥에 USB 직결. `radar.py` 로 cfg 25/25 줄 수락, TLV 스트림
-  수신 및 디코딩 확인.
-- **2단계 (예정)** — PC 자리를 nRF5340이 대체. UART로 cfg 보내고 TLV 파싱.
-  `src/main.c` 는 아직 빈 Zephyr 스켈레톤이다.
+- **Stage 1 (done)** — EVM connected directly to a Mac over USB. `radar.py`
+  gets 25/25 cfg lines accepted, and the TLV stream is received and decoded.
+- **Stage 2 (planned)** — the nRF5340 takes the PC's place: send cfg over UART,
+  parse TLVs. `src/main.c` is still an empty Zephyr skeleton.
 
-2단계에서는 **UART 2선으로는 부족하다.** 리셋 없이는 재설정이 안 되는 데모라
-nRF5340이 IWRL6432의 NRST를 GPIO로 잡아야 한다 (둘 다 3.3V 로직이라 레벨 시프터 불필요).
+For stage 2, **two UART wires are not enough.** The demo cannot be reconfigured
+without a reset, so the nRF5340 has to drive the IWRL6432's NRST from a GPIO
+(both sides are 3.3V logic, so no level shifter is needed).
 
-## 사용법
+## Usage
 
 ```bash
 cd tools
-python3 radar.py iwrl6432-presence.cfg    # warm reset -> cfg 전송 -> 프레임 검증
-python3 monitor.py iwrl6432-presence.cfg  # 구역별 재실 라이브 출력
-python3 listen.py 5                       # 5초간 프레임 카운트
-python3 tlv.py                            # 디코더 자체 검증 (하드웨어 불필요)
+python3 radar.py iwrl6432-presence.cfg    # warm reset -> send cfg -> verify frames
+python3 monitor.py iwrl6432-presence.cfg  # live per-zone occupancy output
+python3 listen.py 5                       # count frames for 5 seconds
+python3 tlv.py                            # decoder self-check (no hardware needed)
 ```
 
-pyserial 안 쓴다 — stdlib `termios` / `fcntl` 로 충분해서 의존성을 추가하지 않았다.
-(1250000 baud는 termios에 상수가 없어서 macOS `IOSSIOSPEED` ioctl로 설정한다.)
+No pyserial — stdlib `termios` / `fcntl` covered everything, so no dependency was
+added. (1250000 baud has no termios constant, so it is set through the macOS
+`IOSSIOSPEED` ioctl.)
 
-## 파일
+## Files
 
-| 파일 | 역할 |
+| File | Role |
 |---|---|
-| `tools/radar.py` | 링크 관리: baud 자동탐지, warm reset, cfg 한 줄씩 전송·검증 |
-| `tools/tlv.py` | 프레임/TLV 디코더 (SDK 헤더에서 레이아웃 전사) |
-| `tools/monitor.py` | 구역별 재실 라이브 출력 |
-| `tools/listen.py` | 프레임 수 / fps 빠른 확인 |
-| `tools/iwrl6432-presence.cfg` | presence 프로파일 (동작 확인됨) |
-| `src/main.c` | nRF5340 호스트 앱 (2단계, 아직 비어 있음) |
+| `tools/radar.py` | Link management: baud autodetect, warm reset, per-line cfg send and verification |
+| `tools/tlv.py` | Frame / TLV decoder (layouts transcribed from the SDK headers) |
+| `tools/monitor.py` | Live per-zone occupancy output |
+| `tools/listen.py` | Quick frame count / fps check |
+| `tools/iwrl6432-presence.cfg` | Presence profile (verified working) |
+| `src/main.c` | nRF5340 host app (stage 2, still empty) |
 
-## 자세한 내용
+## More detail
 
-브링업 과정에서 걸린 함정들(펌웨어 버전 불일치, 저전력 모드에서 UART 죽는 문제,
-문자 유실, 트래커 미해결 이슈 등)은 **[tools/README.md](tools/README.md)** 에 전부 정리돼
-있다. 2단계 작업 전에 읽을 것.
+Every trap hit during bring-up — firmware/cfg version mismatch, UART dying in
+low-power mode, dropped characters, the unresolved tracker issue — is written up
+in **[tools/README.md](tools/README.md)** (in Korean). Read it before starting
+stage 2.
 
-## 관련 저장소
+## Related repository
 
-공기질 측정(PM2.5/PM10/VOC/온습도)은 별도 저장소:
+Air quality measurement (PM2.5 / PM10 / VOC / temperature-humidity) lives in a
+separate repo:
 [JeonJunYoung-hub/nRF5340_Wearable](https://github.com/JeonJunYoung-hub/nRF5340_Wearable) —
-이쪽은 센서를 **I2C** 로 읽는다.
+that one reads its sensors over **I2C**.
