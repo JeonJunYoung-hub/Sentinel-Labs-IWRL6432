@@ -1,5 +1,9 @@
 # IWRL6432 — mmWave Presence Radar
 
+> **Sentinel Labs** — the presence-sensing half of a construction-site dust
+> monitoring system, built under the **Startup for All (모두의 창업)** startup
+> program.
+
 Per-zone presence and motion detection with a TI IWRL6432BOOST (60 GHz mmWave).
 Host-side Python tooling plus a placeholder Zephyr app for the nRF5340 host.
 
@@ -78,5 +82,5 @@ stage 2.
 
 Air quality measurement (PM2.5 / PM10 / VOC / temperature-humidity) lives in a
 separate repo:
-[JeonJunYoung-hub/nRF5340_Wearable](https://github.com/JeonJunYoung-hub/nRF5340_Wearable) —
+[JeonJunYoung-hub/Sentinel-Labs-nRF5340-Wearable](https://github.com/JeonJunYoung-hub/Sentinel-Labs-nRF5340-Wearable) —
 that one reads its sensors over **I2C**.
