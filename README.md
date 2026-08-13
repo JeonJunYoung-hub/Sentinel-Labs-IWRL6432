@@ -5,19 +5,20 @@
 > program.
 
 Per-zone presence and motion detection with a TI IWRL6432BOOST (60 GHz mmWave).
-An **nRF5340 Zephyr node** drives the radar over UART, keeps 24 h of occupancy
-records in flash, and hands them to a phone over BLE. The Python tooling in
+An **nRF5340 Zephyr node** drives the radar over UART, reads a Sensirion SEN5x
+over I2C, keeps 24 h of combined occupancy + air-quality records in flash, and
+hands them to a phone over BLE. The Python tooling in
 `tools/` does the same job from a PC, and is what the bring-up was done with.
 
 ## The bench
 
 ![Bench setup](docs/bench.jpg)
 
-Left: **IWRL6432BOOST** (60 GHz mmWave). Centre: **nRF5340 DK** host. Right:
-**Sensirion SEN54**, the air-quality sibling node — it hangs off the same DK over
-I2C and belongs to the
-[Wearable repo](https://github.com/JeonJunYoung-hub/Sentinel-Labs-nRF5340-Wearable).
-Both boards take their own USB power and share only GND.
+Left: **IWRL6432BOOST** (60 GHz mmWave), on UART. Centre: **nRF5340 DK** host.
+Right: **Sensirion SEN54** on I2C — not a separate node, it is the air-quality
+half of *this* one, and its PM / temp / RH / VOC ride in the same 24-byte record
+as the radar's occupancy. The two boards take their own USB power and share
+only GND.
 
 ![Bench setup, second angle](docs/bench-2.jpg)
 
@@ -36,8 +37,9 @@ flowchart TD
     CLI["22 cfg lines<br/>1 ms per character"]
     NRST["NRST pulse"]
     PARSE["tlv_push()<br/>magic + totalPacketLen"]
-    ACC["window accumulator<br/>max headcount · occupied frames · dwell"]
-    REC["one record every 30 s"]
+    SEN["SEN5x over I2C<br/>PM2.5 / PM10 / temp / RH / VOC"]
+    ACC["window accumulator<br/>max headcount · occupied frames · dwell<br/>+ air-quality max over the window"]
+    REC["one 24-byte record every 30 s"]
     NVS[("NVS ring<br/>2880 records = 24 h")]
     BTN["Button 1 · P0.23"]
     ADV["BLE advertising, 20 s window"]
@@ -48,6 +50,7 @@ flowchart TD
     CLI --> RAD
     RAD -->|"UART 115200<br/>TLV @ 4 fps"| PARSE
     PARSE --> ACC
+    SEN --> ACC
     ACC --> REC
     REC --> NVS
     BTN --> ADV
@@ -182,7 +185,8 @@ Detection range is 0.25–7.5 m, FoV ±70° azimuth / ±60° elevation.
 | `src/main.c` | Boot, 1 s tick, one record per window, probe mode |
 | `src/radar.c` | IWRL6432 link: NRST, cfg push, TLV stream, stall recovery, window accumulator |
 | `src/tlv.c` | Frame reassembly + TLV decode (pure C, host-testable) |
-| `src/frame.c` | SNTL wire frame v2: header, records, CRC-16 (pure C, host-testable) |
+| `src/frame.c` | SNTL wire frame v3: header, 24-byte records, CRC-16 (pure C, host-testable) |
+| `src/sen5x.c` | Sensirion SEN5x over I2C: PM2.5/PM10, temp/RH, VOC index |
 | `src/store.c` | NVS ring, 24 h of records, seq survives reset |
 | `src/ble.c` | SNTL GATT service: advertise, dump command, notify stream |
 | `boards/nrf5340dk_nrf5340_cpuapp.overlay` | uart1 pins, NRST GPIO, flash partition resize |
@@ -192,7 +196,7 @@ Detection range is 0.25–7.5 m, FoV ±70° azimuth / ±60° elevation.
 ## More detail
 
 - **[docs/firmware.md](docs/firmware.md)** (Korean) — the full firmware write-up:
-  J8 pin hunting, DIP switches, frame format v2, BLE service, every cfg trap, the
+  J8 pin hunting, DIP switches, frame format v3, BLE service, every cfg trap, the
   tracker crash, stall recovery.
 - **[tools/README.md](tools/README.md)** (Korean) — PC bring-up log: firmware/cfg
   version mismatch, UART dying in low-power mode, dropped characters.
