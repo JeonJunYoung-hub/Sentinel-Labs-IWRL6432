@@ -7,6 +7,25 @@
 Per-zone presence and motion detection with a TI IWRL6432BOOST (60 GHz mmWave).
 Host-side Python tooling plus a placeholder Zephyr app for the nRF5340 host.
 
+## The bench
+
+![Bench setup](docs/bench.jpg)
+
+Left: **IWRL6432BOOST** (60 GHz mmWave). Centre: **nRF5340 DK** host. Right:
+**Sensirion SEN54**, the air-quality sibling node — it hangs off the same DK over
+I2C and belongs to the
+[Wearable repo](https://github.com/JeonJunYoung-hub/Sentinel-Labs-nRF5340-Wearable).
+Both boards take their own USB power and share only GND.
+
+![Bench setup, second angle](docs/bench-2.jpg)
+
+| | |
+|---|---|
+| ![IWRL6432BOOST](docs/iwrl6432boost.jpg) | ![nRF5340 DK](docs/nrf5340dk.jpg) |
+| The EVM. UART and NRST are tapped from the LP/BP connectors (J8/J9) — no soldering. | The DK side of the same three wires, plus the SEN54 harness. |
+
+![SEN54](docs/sen54.jpg)
+
 ## How the data is read
 
 **This is UART, not I2C.** The IWRL6432 is a standalone SoC (Cortex-M4F plus
